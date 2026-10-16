@@ -8,7 +8,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 ---
-# Passbolt is an open source password manager for teams.
 # Project source code URL: https://github.com/passbolt/passbolt_api
 
 passbolt_enabled: true
@@ -160,6 +159,9 @@ passbolt_container_extra_arguments_custom: []
 
 # A list of extra arguments to pass to the process inside the container
 # Example: ['--SOME_ARGUMENT']
+#
+# The image starts Passbolt with its command (`/docker-entrypoint.sh`), not with an entrypoint,
+# so these arguments replace that command instead of being passed to it.
 passbolt_process_extra_arguments: "{{ passbolt_process_extra_arguments_auto + passbolt_process_extra_arguments_custom }}"
 passbolt_process_extra_arguments_auto: []
 passbolt_process_extra_arguments_custom: []

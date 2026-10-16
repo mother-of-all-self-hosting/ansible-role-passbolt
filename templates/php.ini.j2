@@ -5,7 +5,8 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 #}
 
 {# Debian switches PHP's own session cleanup off and leaves it to a cron job, which the image does not run.
-   Without it, expired sessions are never removed: they fill their tmpfs, and Passbolt's session timeout,
-   which is PHP's `session.gc_maxlifetime`, never takes effect. These are PHP's own defaults. #}
+   Without it, expired session files are never removed and fill their tmpfs. Passbolt rejects a session
+   idle for longer than `session.gc_maxlifetime` either way, but only this cleanup deletes its file.
+   These are PHP's own defaults. #}
 session.gc_probability = 1
 session.gc_divisor = 100

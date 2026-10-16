@@ -104,6 +104,7 @@ bump_version="sed -i 's|^passbolt_version: 5.16.0-1$|passbolt_version: 5.17.0-1|
 revert_version="sed -i 's|^passbolt_version: 5.17.0-1$|passbolt_version: 5.16.0-1|' defaults/main.yml"
 bump_revision="sed -i 's|^passbolt_version: 5.16.0-1$|passbolt_version: 5.16.0-2|' defaults/main.yml"
 switch_to_revision_10="sed -i 's|^passbolt_version: 5.16.0-1$|passbolt_version: 5.16.0-10|' defaults/main.yml"
+prefix_version="sed -i 's|^passbolt_version: 5.16.0-1$|passbolt_version: v5.17.0-1|' defaults/main.yml"
 edit_task="printf 'a task\n' >> tasks/main.yml"
 edit_template="printf 'a line\n' >> templates/env.j2"
 edit_readme="printf 'documentation\n' >> README.md"
@@ -156,6 +157,9 @@ expect 'a revert' ''        "$(merge "$revert_version")"
 scenario 'Reverting to an already released version, with a change'
 merge "$bump_version" > /dev/null
 expect 'a revert' v5.16.0-1-2 "$(merge "$revert_version && $edit_task")"
+
+scenario 'A version value carrying a leading v does not double it in the tag'
+expect 'version bump' v5.17.0-1-0 "$(merge "$prefix_version")"
 
 if [ "$failures" -gt 0 ]; then
 	echo >&2 "$failures scenario(s) behaved unexpectedly"

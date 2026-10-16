@@ -47,7 +47,10 @@ if [ -z "$version" ]; then
 	exit 1
 fi
 
-tag_prefix="v${version}-"
+# The version values do not carry a leading `v` (e.g. `5.16.0-1`), but the tags
+# do (`v5.16.0-1-0`). Stripping any `v` before prepending one keeps this correct
+# even if the version values ever start carrying one.
+tag_prefix="v${version#v}-"
 
 # Of all releases of this version, the highest release number. Sorted
 # numerically, so that -10 is recognized as newer than -9.
