@@ -32,6 +32,10 @@
         )
       }}
 
+    # The SMTP host this scenario configures. Nothing resolves it, so it shows
+    # up in the error Passbolt records when it tries to send an email.
+    passbolt_verify_email_transport_default_host: ssl://smtp.molecule.invalid
+
     passbolt_verify_units:
       - passbolt.service
       - postgres.service

@@ -1,6 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Version bumps of Passbolt stay human-reviewed pull requests: the container migrates Passbolt's database on every start, and Passbolt documents no way back to an older version once that has happened.",
+  "description": [
+    "Version bumps of Passbolt stay human-reviewed pull requests: the container migrates Passbolt's database on every start, and Passbolt documents no way back to an older version once that has happened."
+  ],
   "extends": [
     "github>mother-of-all-self-hosting/renovate-config#v1.1.0"
   ],

@@ -66,6 +66,8 @@ passbolt_hostname: "example.com"
 
 After adjusting the hostname, make sure to adjust your DNS records to point the domain to your server.
 
+**Note**: hosting Passbolt under a subpath (by configuring the `passbolt_path_prefix` variable) does not seem to be possible due to Passbolt's technical limitations.
+
 ### Configuring database
 
 #### Specify database
@@ -127,6 +129,7 @@ passbolt_environment_variables_email_transport_default_password: ""
 passbolt_environment_variables_email_default_from: ""
 
 # Set to `true` to enable STARTTLS
+# To connect with implicit TLS (port 465) instead, prefix the hostname with `ssl://` (e.g. `ssl://smtp.example.com`).
 passbolt_environment_variables_email_transport_default_tls: true
 ```
 
@@ -141,7 +144,7 @@ Take a look at:
 
 - [`defaults/main.yml`](../defaults/main.yml) for some variables that you can customize via your `vars.yml` file. You can override settings (even those that don't have dedicated playbook variables) using the `passbolt_environment_variables_additional_variables` variable
 
-Refer to [this page](https://www.passbolt.com/docs/hosting/environment-reference/) for available options which can be set to `passbolt_environment_variables_additional_variables`.
+Refer to [the official documentation](https://www.passbolt.com/docs/hosting/environment-reference/) for a complete list of Passbolt's config options that you can put in `passbolt_environment_variables_additional_variables`.
 
 ## Installing
 

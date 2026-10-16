@@ -21,17 +21,17 @@
 # scenario happens to say at the time.
 - name: State what the Passbolt scenarios configure
   ansible.builtin.set_fact:
-    passbolt_expected_uid: 1873
-    passbolt_expected_gid: 1873
-    passbolt_expected_full_base_url: https://passbolt.molecule.local
-    passbolt_expected_email_default_from: passbolt@molecule.local
-    passbolt_expected_email_transport_default_host: smtp.molecule.local
+    passbolt_verify_uid: 1873
+    passbolt_verify_gid: 1873
+    passbolt_verify_full_base_url: https://passbolt.molecule.local
+    passbolt_verify_email_default_from: passbolt@molecule.local
 
     # These are role defaults, but Jinja-derived ones, and a verify play cannot
     # resolve them out of defaults/main.yml - so they are spelled out here.
-    passbolt_verify_gpg_path: /passbolt/gpg
-    passbolt_verify_jwt_path: /passbolt/jwt
-    passbolt_verify_environment_file_path: /passbolt/environment
+    passbolt_verify_base_path: /passbolt
+    passbolt_verify_gpg_path: /passbolt/data/gpg
+    passbolt_verify_jwt_path: /passbolt/data/jwt
+    passbolt_verify_environment_file_path: /passbolt/etc-environment
 
     passbolt_verify_url: http://127.0.0.1:18080
 
@@ -114,7 +114,7 @@
 - name: Assert that the container runs as the role's user, read-only and without capabilities
   ansible.builtin.assert:
     that:
-      - passbolt_container.Config.User == (passbolt_expected_uid | string) ~ ':' ~ (passbolt_expected_gid | string)
+      - passbolt_container.Config.User == (passbolt_verify_uid | string) ~ ':' ~ (passbolt_verify_gid | string)
       - passbolt_container.HostConfig.GroupAdd == ['33']
       - passbolt_container.HostConfig.ReadonlyRootfs
       - passbolt_container.HostConfig.CapDrop == ['ALL']
@@ -150,19 +150,76 @@
     fail_msg: "Passbolt reports {{ passbolt_version_reported.stdout_lines | select('match', '.*Passbolt') | list }}, expected {{ passbolt_defaults.passbolt_version }}"
     success_msg: "Passbolt reports {{ passbolt_version_reported.stdout_lines | select('match', '^Passbolt') | first }}"
 
-# STARTTLS is switched off in the scenario, and Passbolt enables it for any
-# value at all, `false` included, so the variable must be absent rather than
-# false. Whether Passbolt sends through the configured host is checked further
-# down, once an email has been queued.
+# Each scenario switches STARTTLS off in its own way: with an `ssl://` host, or
+# with the string "false". Passbolt enables it for any value at all, so the
+# variable must be absent rather than false. Whether Passbolt sends through the
+# configured host is checked further down, once an email has been queued.
 - name: Assert that the mailer settings reached the container environment
   ansible.builtin.assert:
     that:
-      - ('APP_FULL_BASE_URL=' ~ passbolt_expected_full_base_url) in passbolt_container.Config.Env
-      - ('EMAIL_DEFAULT_FROM=' ~ passbolt_expected_email_default_from) in passbolt_container.Config.Env
-      - ('EMAIL_TRANSPORT_DEFAULT_HOST=' ~ passbolt_expected_email_transport_default_host) in passbolt_container.Config.Env
+      - ('APP_FULL_BASE_URL=' ~ passbolt_verify_full_base_url) in passbolt_container.Config.Env
+      - ('EMAIL_DEFAULT_FROM=' ~ passbolt_verify_email_default_from) in passbolt_container.Config.Env
+      - ('EMAIL_TRANSPORT_DEFAULT_HOST=' ~ passbolt_verify_email_transport_default_host) in passbolt_container.Config.Env
       - passbolt_container.Config.Env | select('match', 'EMAIL_TRANSPORT_DEFAULT_TLS=') | list | length == 0
     fail_msg: "templates/env.j2 did not produce the expected environment: {{ passbolt_container.Config.Env | select('match', '(APP|EMAIL)_') | list }}"
     success_msg: "The base URL and the mailer settings reached the container, without STARTTLS"
+
+# The scenarios serve Passbolt over HTTPS (as far as its URL is concerned) and
+# enable the Traefik labels, which is what these follow from. The client
+# address it records cannot be observed without a reverse proxy in front, so
+# only the setting is.
+- name: Assert that the reverse proxy and logging settings reached the container environment
+  ansible.builtin.assert:
+    that:
+      - "'HTTPS=on' in passbolt_container.Config.Env"
+      - "'PASSBOLT_SECURITY_PROXIES_ACTIVE=true' in passbolt_container.Config.Env"
+      - ('LOG_DEBUG_URL=' ~ passbolt_defaults.passbolt_environment_variables_log_debug_url) in passbolt_container.Config.Env
+    fail_msg: "templates/env.j2 did not produce the expected environment: {{ passbolt_container.Config.Env | select('match', '(HTTPS|PASSBOLT_SECURITY|LOG_)') | list }}"
+    success_msg: "HTTPS, the trusted reverse proxy and the console debug log reached the container"
+
+# The tmpfs sizes come from role variables. The keyring and the sessions are
+# the two that grow with the number of users.
+- name: Assert that the tmpfs volumes for the keyring and the sessions have the role's sizes
+  ansible.builtin.assert:
+    that:
+      - ('size=' ~ passbolt_defaults.passbolt_container_tmpfs_gnupg_size) in passbolt_container.HostConfig.Tmpfs['/var/lib/passbolt/.gnupg'].split(',')
+      - ('size=' ~ passbolt_defaults.passbolt_container_tmpfs_sessions_size) in passbolt_container.HostConfig.Tmpfs['/var/lib/php/sessions'].split(',')
+    fail_msg: "The tmpfs volumes are {{ passbolt_container.HostConfig.Tmpfs }}"
+    success_msg: "The keyring and session tmpfs volumes have the sizes defaults/main.yml sets"
+
+# The image switches PHP's session cleanup off. php-fpm reads the same
+# environment as the one supervisord started, so this is what it runs with.
+- name: Ask php-fpm for its session cleanup settings
+  ansible.builtin.command:
+    argv: [docker, exec, passbolt, sh, -c, 'php-fpm$PHP_VERSION -i']
+  register: passbolt_php_fpm_info
+  changed_when: false
+
+- name: Assert that php-fpm cleans up expired sessions
+  ansible.builtin.assert:
+    that:
+      - passbolt_php_fpm_info.stdout_lines | select('match', '^session\\.gc_probability => 1 => 1$') | list | length == 1
+      - passbolt_php_fpm_info.stdout_lines | select('match', '^session\\.gc_divisor => 100 => 100$') | list | length == 1
+    fail_msg: "php-fpm runs with {{ passbolt_php_fpm_info.stdout_lines | select('search', 'session.gc_') | list }}"
+    success_msg: "php-fpm cleans up expired sessions"
+
+# Passbolt marks its CSRF cookie `Secure` only when PHP believes the request
+# arrived over HTTPS. TLS ends before the container, so this is the HTTPS
+# variable at work.
+- name: Retrieve the Passbolt login page
+  ansible.builtin.uri:
+    url: "{{ passbolt_verify_url }}/auth/login"
+    method: GET
+    follow_redirects: none
+  register: passbolt_login_page
+
+- name: Assert that Passbolt marks its CSRF cookie Secure
+  ansible.builtin.assert:
+    that:
+      - (passbolt_login_page.set_cookie | default('')).startswith('csrfToken=')
+      - "'secure' in (passbolt_login_page.set_cookie | default('')).split(';') | map('trim') | map('lower') | list"
+    fail_msg: "Passbolt set the cookie {{ passbolt_login_page.set_cookie | default('none') }}"
+    success_msg: "Passbolt marks its CSRF cookie Secure"
 
 # ------------------------------------------------------------------
 # Traefik labels
@@ -186,6 +243,21 @@
 # The server key, generated into the host side of the bind mount
 # ------------------------------------------------------------------
 
+# The server's private key is written world-readable by the entrypoint, so the
+# base path above it is what keeps it private.
+- name: Check the base path on the host
+  ansible.builtin.stat:
+    path: "{{ passbolt_verify_base_path }}"
+  register: passbolt_base_path_stat
+
+- name: Assert that only the role's user may enter the base path
+  ansible.builtin.assert:
+    that:
+      - passbolt_base_path_stat.stat.mode == '0700'
+      - passbolt_base_path_stat.stat.uid == passbolt_verify_uid
+    fail_msg: "{{ passbolt_verify_base_path }} has the mode {{ passbolt_base_path_stat.stat.mode }} and the owner {{ passbolt_base_path_stat.stat.uid }}"
+    success_msg: "{{ passbolt_verify_base_path }} is 0700 and owned by {{ passbolt_verify_uid }}"
+
 - name: Check the key files the entrypoint generated on the host
   ansible.builtin.stat:
     path: "{{ item }}"
@@ -202,11 +274,11 @@
   ansible.builtin.assert:
     that:
       - passbolt_key_files.results | map(attribute='stat.exists') | unique | list == [true]
-      - passbolt_key_files.results | map(attribute='stat.uid') | unique | list == [passbolt_expected_uid]
+      - passbolt_key_files.results | map(attribute='stat.uid') | unique | list == [passbolt_verify_uid]
     fail_msg: >-
       The key files are owned by
       {{ dict(passbolt_key_files.results | map(attribute='item') | zip(passbolt_key_files.results | map(attribute='stat.uid', default='missing'))) }}
-    success_msg: "The server and JWT keys are under {{ passbolt_verify_gpg_path }} and {{ passbolt_verify_jwt_path }}, owned by {{ passbolt_expected_uid }}"
+    success_msg: "The server and JWT keys are under {{ passbolt_verify_gpg_path }} and {{ passbolt_verify_jwt_path }}, owned by {{ passbolt_verify_uid }}"
 
 - name: Read the server public key from the host
   ansible.builtin.slurp:
@@ -291,8 +363,8 @@
 
 - name: Assert the setup link is built from the configured base URL
   ansible.builtin.assert:
-    that: passbolt_setup_link.startswith(passbolt_expected_full_base_url ~ '/setup/start/')
-    fail_msg: "register_user printed no setup link under {{ passbolt_expected_full_base_url }}: {{ passbolt_register_user.stdout_lines[-3:] }}"
+    that: passbolt_setup_link.startswith(passbolt_verify_full_base_url ~ '/setup/start/')
+    fail_msg: "register_user printed no setup link under {{ passbolt_verify_full_base_url }}: {{ passbolt_register_user.stdout_lines[-3:] }}"
     success_msg: "register_user printed {{ passbolt_setup_link }}"
 
 # The setup page itself is a single-page app shell which answers 200 for any
@@ -376,11 +448,100 @@
   register: passbolt_db_email_error
   changed_when: false
 
+# The error names the bare hostname, without an `ssl://` prefix.
 - name: Assert Passbolt tried to send the welcome email through the configured SMTP host
   ansible.builtin.assert:
-    that: passbolt_expected_email_transport_default_host in passbolt_db_email_error.stdout
+    that: (passbolt_verify_email_transport_default_host | regex_replace('^ssl://', '')) in passbolt_db_email_error.stdout
     fail_msg: "Sending the welcome email failed with: {{ passbolt_db_email_error.stdout | trim }}"
-    success_msg: "Passbolt's cron job tried to send the welcome email through {{ passbolt_expected_email_transport_default_host }}"
+    success_msg: "Passbolt's cron job tried to send the welcome email through {{ passbolt_verify_email_transport_default_host }}"
+
+# By the time the cron job has run, Passbolt has logged at the notice and info
+# levels at least once. They go to the console, so no log file grows on the
+# tmpfs. The cron job's own output files are rewritten every minute.
+- name: List the files in Passbolt's log directory
+  ansible.builtin.command:
+    cmd: docker exec passbolt ls /var/log/passbolt
+  register: passbolt_log_files
+  changed_when: false
+
+- name: Assert that Passbolt writes no debug log file
+  ansible.builtin.assert:
+    that: passbolt_log_files.stdout_lines | select('search', 'debug') | list | length == 0
+    fail_msg: "/var/log/passbolt holds {{ passbolt_log_files.stdout_lines }}"
+    success_msg: "/var/log/passbolt holds no debug log, only {{ passbolt_log_files.stdout_lines }}"
+
+# ------------------------------------------------------------------
+# A second start, which is what every start after the first one looks like
+# ------------------------------------------------------------------
+
+# Everything above ran against Passbolt's very first start, where the
+# entrypoint generated the server and JWT keys and created the schema. Every
+# later start takes the other path: it imports the existing key, looks its
+# fingerprint up and migrates the existing schema - and every real
+# installation spends all but the first of its starts there.
+- name: Record the key files before the restart
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+  register: passbolt_key_files_before_restart
+  loop:
+    - "{{ passbolt_verify_gpg_path }}/serverkey_private.asc"
+    - "{{ passbolt_verify_jwt_path }}/jwt.key"
+
+- name: Restart the Passbolt service
+  ansible.builtin.systemd_service:
+    name: passbolt.service
+    state: restarted
+
+- name: Wait for the restarted Passbolt to report itself healthy (up to 5m)
+  ansible.builtin.uri:
+    url: "{{ passbolt_verify_url }}/healthcheck/status.json"
+    method: GET
+    follow_redirects: none
+  register: passbolt_health_after_restart
+  until: passbolt_health_after_restart.status == 200 and (passbolt_health_after_restart.json | default({})).get('body', '') == 'OK'
+  retries: 60
+  delay: 5
+  failed_when: false
+
+- name: Ask the restarted Passbolt for its server key
+  ansible.builtin.uri:
+    url: "{{ passbolt_verify_url }}/auth/verify.json"
+    method: GET
+    follow_redirects: none
+  register: passbolt_auth_verify_after_restart
+
+- name: Check the key files after the restart
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+  register: passbolt_key_files_after_restart
+  loop:
+    - "{{ passbolt_verify_gpg_path }}/serverkey_private.asc"
+    - "{{ passbolt_verify_jwt_path }}/jwt.key"
+
+- name: Open the setup link again through the API
+  ansible.builtin.uri:
+    url: "{{ passbolt_verify_url }}{{ passbolt_setup_link | regex_replace('^https?://[^/]+', '') }}.json"
+    method: GET
+    follow_redirects: none
+  register: passbolt_setup_start_after_restart
+
+- name: Assert the restarted Passbolt kept its keys and its data
+  ansible.builtin.assert:
+    that:
+      - (passbolt_health_after_restart.json | default({})).get('body', '') == 'OK'
+      - passbolt_key_files_after_restart.results | map(attribute='stat.checksum') | list == passbolt_key_files_before_restart.results | map(attribute='stat.checksum') | list
+      - passbolt_auth_verify_after_restart.json.body.fingerprint == passbolt_auth_verify.json.body.fingerprint
+      - passbolt_setup_start_after_restart.json.body.user.username == passbolt_verify_admin_email
+    fail_msg: >-
+      After a restart Passbolt reports itself {{ (passbolt_health_after_restart.json | default({})).get('body', 'unhealthy') }},
+      serves the fingerprint {{ passbolt_auth_verify_after_restart.json.body.fingerprint | default('none') }}
+      (before: {{ passbolt_auth_verify.json.body.fingerprint }}), and the key files
+      {{ 'are unchanged' if passbolt_key_files_after_restart.results | map(attribute='stat.checksum') | list == passbolt_key_files_before_restart.results | map(attribute='stat.checksum') | list else 'changed' }}
+    success_msg: >-
+      After a restart Passbolt serves the same server key from the same files,
+      and still knows {{ passbolt_verify_admin_email }}
 
 - name: Verify nothing was quietly restarting while all of that was being checked
   when: "passbolt_restarts_check_enabled | bool"

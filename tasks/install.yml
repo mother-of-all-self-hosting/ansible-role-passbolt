@@ -7,21 +7,24 @@
 ---
 - name: Ensure Passbolt paths exist
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ item.path }}"
     state: directory
-    mode: "0750"
+    mode: "{{ item.mode }}"
     owner: "{{ passbolt_uid }}"
     group: "{{ passbolt_gid }}"
   with_items:
-    - "{{ passbolt_base_path }}"
-    - "{{ passbolt_gpg_path }}"
-    - "{{ passbolt_jwt_path }}"
+    # The server's private key, which the entrypoint writes world-readable, is kept beneath it.
+    - { path: "{{ passbolt_base_path }}", mode: "0700" }
+    - { path: "{{ passbolt_data_path }}", mode: "0750" }
+    - { path: "{{ passbolt_data_path }}/gpg", mode: "0750" }
+    # The entrypoint sets this one to 0750 on every start.
+    - { path: "{{ passbolt_data_path }}/jwt", mode: "0750" }
 
 # The container's entrypoint writes its environment into this file on every start. It has to
 # exist beforehand, as Docker refuses to bind-mount a source path which does not.
 - name: Ensure Passbolt environment file exists
   ansible.builtin.file:
-    path: "{{ passbolt_environment_file_path }}"
+    path: "{{ passbolt_base_path }}/etc-environment"
     state: touch
     mode: "0600"
     owner: "{{ passbolt_uid }}"
@@ -29,7 +32,7 @@
     access_time: preserve
     modification_time: preserve
 
-- name: Ensure Passbolt support files created
+- name: Ensure Passbolt support files installed
   ansible.builtin.template:
     src: "{{ role_path }}/templates/{{ item }}.j2"
     dest: "{{ passbolt_base_path }}/{{ item }}"
@@ -40,6 +43,7 @@
     - env
     - labels
     - passwd
+    - php.ini
   register: passbolt_support_files_result
 
 - name: Ensure Passbolt container image is pulled via community.docker.docker_image_pull

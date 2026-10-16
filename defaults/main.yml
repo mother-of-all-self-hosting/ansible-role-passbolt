@@ -15,13 +15,7 @@ passbolt_enabled: true
 
 passbolt_identifier: passbolt
 passbolt_base_path: "/{{ passbolt_identifier }}"
-passbolt_gpg_path: "{{ passbolt_base_path }}/gpg"
-passbolt_jwt_path: "{{ passbolt_base_path }}/jwt"
-
-# The file the container's entrypoint dumps its environment into (`/etc/environment`) on every start.
-# The image's own copy is not writable by `passbolt_uid`, and CLI commands run with `docker exec` source this file
-# to pick up the server key fingerprint which the entrypoint detects.
-passbolt_environment_file_path: "{{ passbolt_base_path }}/environment"
+passbolt_data_path: "{{ passbolt_base_path }}/data"
 
 # The version is Passbolt's own version, followed by the revision of the Docker image built for it (e.g. `5.16.0-1`).
 # renovate: datasource=docker depName=passbolt/passbolt versioning=semver
@@ -37,8 +31,18 @@ passbolt_gid: ""
 # lets Passbolt read its configuration when `passbolt_uid` is anything other than 33.
 passbolt_container_image_gid: 33
 
+# The scheme used for serving Passbolt.
+passbolt_scheme: https
+
 # The hostname at which Passbolt is served.
 passbolt_hostname: ""
+
+# The path at which Passbolt is served.
+# This value must either be `/` or not end with a slash (e.g. `/passbolt`).
+#
+# Hosting Passbolt under a subpath does not seem to be possible due to Passbolt's
+# technical limitations.
+passbolt_path_prefix: /
 
 passbolt_container_image: "{{ passbolt_container_image_registry_prefix }}passbolt/passbolt:{{ passbolt_container_image_tag }}"
 passbolt_container_image_tag: "{{ passbolt_version }}-ce-non-root"
@@ -54,17 +58,17 @@ passbolt_container_network_deletion_enabled: true
 
 # Specify how the container publishes its HTTP port (as defined by `passbolt_container_http_port`).
 #
-# Takes an "<ip>:<port>" or "<port>" value (e.g. "127.0.0.1:8080"), or empty string to not expose.
+# Takes an "<ip>:<port>" or "<port>" value (e.g. "127.0.0.1:2586"), or empty string to not expose.
 passbolt_container_http_host_bind_port: ""
 
-# The port that nginx listens on in the container. The non-root image hard-codes it.
+# The port number in the container
+# The non-root image hard-codes it.
 passbolt_container_http_port: 8080
 
 # A list of additional container networks that the container would be connected to.
 # The role does not create these networks, so make sure they already exist.
 # Use this to expose this container to another reverse proxy, which runs in a different container network.
-passbolt_container_additional_networks: "{{ (passbolt_container_additional_networks_default + passbolt_container_additional_networks_auto + passbolt_container_additional_networks_custom) | unique }}"
-passbolt_container_additional_networks_default: []
+passbolt_container_additional_networks: "{{ passbolt_container_additional_networks_auto + passbolt_container_additional_networks_custom }}"
 passbolt_container_additional_networks_auto: []
 passbolt_container_additional_networks_custom: []
 
@@ -84,11 +88,13 @@ passbolt_container_additional_volumes_custom: []
 passbolt_container_labels_traefik_enabled: true
 passbolt_container_labels_traefik_docker_network: "{{ passbolt_container_network }}"
 passbolt_container_labels_traefik_hostname: "{{ passbolt_hostname }}"
-passbolt_container_labels_traefik_rule: "Host(`{{ passbolt_container_labels_traefik_hostname }}`)"
+# The path prefix must either be `/` or not end with a slash (e.g. `/passbolt`).
+passbolt_container_labels_traefik_path_prefix: "{{ passbolt_path_prefix }}"
+passbolt_container_labels_traefik_rule: "Host(`{{ passbolt_container_labels_traefik_hostname }}`){% if passbolt_container_labels_traefik_path_prefix != '/' %} && PathPrefix(`{{ passbolt_container_labels_traefik_path_prefix }}`){% endif %}"
 passbolt_container_labels_traefik_priority: 0
 passbolt_container_labels_traefik_entrypoints: web-secure
 passbolt_container_labels_traefik_tls: "{{ passbolt_container_labels_traefik_entrypoints != 'web' }}"
-passbolt_container_labels_traefik_tls_certResolver: default # noqa var-naming
+passbolt_container_labels_traefik_tls_certResolver: default  # noqa var-naming
 
 # Controls which additional headers to attach to all HTTP requests.
 # To add your own custom request headers, use `passbolt_container_labels_traefik_additional_request_headers_custom`
@@ -122,16 +128,38 @@ passbolt_container_labels_additional_labels: "{{ passbolt_container_labels_addit
 passbolt_container_labels_additional_labels_auto: []
 passbolt_container_labels_additional_labels_custom: []
 
-# Specify the size of the container's tmpfs volume for /tmp (nginx's temporary files, and the PID files of the services)
+# Specify the size of the container's tmpfs volume (/tmp)
 passbolt_container_tmpfs_tmp_size: 128m
 
-# Specify the size of the container's tmpfs volume for Passbolt's cache and temporary files (/var/lib/passbolt/tmp)
+# Specify the size of the container's tmpfs volume (/var/lib/passbolt/tmp)
 passbolt_container_tmpfs_cache_size: 64m
+
+# Specify the size of the container's tmpfs volume (/var/lib/passbolt/.gnupg)
+# Passbolt adds the public key of every user who logs in to this keyring.
+passbolt_container_tmpfs_gnupg_size: 64m
+
+# Specify the size of the container's tmpfs volume (/etc/passbolt/certs)
+passbolt_container_tmpfs_certs_size: 1m
+
+# Specify the size of the container's tmpfs volume (/var/lib/php/sessions)
+passbolt_container_tmpfs_sessions_size: 64m
+
+# Specify the size of the container's tmpfs volume (/var/log/passbolt)
+passbolt_container_tmpfs_log_size: 16m
+
+# Specify the size of the container's tmpfs volume (/var/log/supervisor)
+passbolt_container_tmpfs_supervisor_size: 16m
 
 # A list of extra arguments to pass to the container (`docker create` command)
 passbolt_container_extra_arguments: "{{ passbolt_container_extra_arguments_auto + passbolt_container_extra_arguments_custom }}"
 passbolt_container_extra_arguments_auto: []
 passbolt_container_extra_arguments_custom: []
+
+# A list of extra arguments to pass to the process inside the container
+# Example: ['--SOME_ARGUMENT']
+passbolt_process_extra_arguments: "{{ passbolt_process_extra_arguments_auto + passbolt_process_extra_arguments_custom }}"
+passbolt_process_extra_arguments_auto: []
+passbolt_process_extra_arguments_custom: []
 
 # Specifies the value of the `X-XSS-Protection` header
 # Stops pages from loading when they detect reflected cross-site scripting (XSS) attacks.
@@ -154,7 +182,7 @@ passbolt_http_header_content_security_policy: ""
 # Specifies the value of the `Permissions-Policy` header.
 # See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy
 #
-# We intentionally don't set this, because Passbolt does it and we'd rather not override its value.
+# We intentionally don't set this, because Passbolt does it and we'd rather not override its (better) value.
 passbolt_http_header_permissions_policy: ""
 
 # Specifies the value of the `Strict-Transport-Security` header.
@@ -174,13 +202,13 @@ passbolt_http_header_strict_transport_security: "max-age=31536000; includeSubDom
 passbolt_hsts_preload_enabled: false
 
 # List of systemd services that the Passbolt systemd service depends on
-passbolt_systemd_required_services_list: "{{ (passbolt_systemd_required_services_list_default + passbolt_systemd_required_services_list_auto + passbolt_systemd_required_services_list_custom) | unique }}"
+passbolt_systemd_required_services_list: "{{ passbolt_systemd_required_services_list_default + passbolt_systemd_required_services_list_auto + passbolt_systemd_required_services_list_custom }}"
 passbolt_systemd_required_services_list_default: "{{ [devture_systemd_docker_base_docker_service_name] if devture_systemd_docker_base_docker_service_name else [] }}"
 passbolt_systemd_required_services_list_auto: []
 passbolt_systemd_required_services_list_custom: []
 
 # List of systemd services that the Passbolt systemd service wants
-passbolt_systemd_wanted_services_list: "{{ (passbolt_systemd_wanted_services_list_default + passbolt_systemd_wanted_services_list_auto + passbolt_systemd_wanted_services_list_custom) | unique }}"
+passbolt_systemd_wanted_services_list: "{{ passbolt_systemd_wanted_services_list_default + passbolt_systemd_wanted_services_list_auto + passbolt_systemd_wanted_services_list_custom }}"
 passbolt_systemd_wanted_services_list_default: []
 passbolt_systemd_wanted_services_list_auto: []
 passbolt_systemd_wanted_services_list_custom: []
@@ -255,43 +283,16 @@ passbolt_database_postgres_socket_path_container: /run-postgres
 # Specify the path to the Postgres Unix socket path on the host (bind-mount source)
 passbolt_database_postgres_socket_path_host: ""
 
+# Specify the URL of the MySQL database when it is reached via a Unix socket.
+# Passbolt has no dedicated setting for the socket, but merges the query string of this URL into its database settings.
+passbolt_environment_variables_datasources_default_url_mysql: "{{ ('mysql://localhost/' + passbolt_database_name + '?unix_socket=' + passbolt_database_mysql_socket_path_container + '/mysqld.sock') if passbolt_database_mysql_socket_enabled else '' }}"
+
+# Specify database host address or absolute path for Unix socket
+passbolt_environment_variables_datasources_default_host_postgres: "{{ passbolt_database_postgres_socket_path_container if passbolt_database_postgres_socket_enabled else passbolt_database_postgres_hostname }}"
+
 ########################################################################
 #                                                                      #
 # /database                                                            #
-#                                                                      #
-########################################################################
-
-########################################################################
-#                                                                      #
-# mailer                                                               #
-#                                                                      #
-########################################################################
-
-# Specify the email address that emails will be sent from
-passbolt_environment_variables_email_default_from: ""
-
-# Specify the name that emails will be sent from
-passbolt_environment_variables_email_default_from_name: Passbolt
-
-# Specify SMTP server hostname
-# Prefix it with `ssl://` to connect with implicit TLS (e.g. `ssl://smtp.example.com` on port 465).
-passbolt_environment_variables_email_transport_default_host: ""
-
-# Specify SMTP server port number
-passbolt_environment_variables_email_transport_default_port: 587
-
-# Specify SMTP server username
-passbolt_environment_variables_email_transport_default_username: ""
-
-# Specify SMTP server password
-passbolt_environment_variables_email_transport_default_password: ""
-
-# Set to `true` to enable STARTTLS
-passbolt_environment_variables_email_transport_default_tls: true
-
-########################################################################
-#                                                                      #
-# /mailer                                                              #
 #                                                                      #
 ########################################################################
 
@@ -300,14 +301,35 @@ passbolt_environment_variables_tz: UTC
 
 # The URL at which Passbolt is served. Passbolt builds every link it hands out from it,
 # including the ones in the emails it sends.
-passbolt_environment_variables_app_full_base_url: "https://{{ passbolt_hostname }}"
+passbolt_environment_variables_app_full_base_url: "{{ passbolt_scheme }}://{{ passbolt_hostname }}{{ '' if passbolt_path_prefix == '/' else passbolt_path_prefix }}"
 
-# passbolt_environment_variables_additional_variables contains a multiline string with additional environment variables to pass to the container.
+# Controls the HTTPS environment variable, which tells PHP that the request reached the reverse proxy over HTTPS.
+# TLS ends before the container, so without it Passbolt would issue its session and CSRF cookies without the `Secure` flag.
+passbolt_environment_variables_https: "{{ 'on' if passbolt_scheme == 'https' else '' }}"
+
+# Controls whether Passbolt takes the client's address from the `X-Forwarded-For` header set by the reverse proxy,
+# instead of recording the reverse proxy's own address in its logs and emails.
+# When `passbolt_container_http_host_bind_port` publishes the port, clients connecting to it directly can spoof that header.
+passbolt_environment_variables_passbolt_security_proxies_active: "{{ passbolt_container_labels_traefik_enabled }}"
+
+# Controls where Passbolt writes its notice, info and debug log messages.
+# The image sends its error log to the console already, and this does the same for the rest,
+# instead of writing them to a file which grows on a tmpfs.
+passbolt_environment_variables_log_debug_url: "console://?levels[]=notice&levels[]=info&levels[]=debug"
+
+# Specify mailer configuration
 #
-# Example:
-# passbolt_environment_variables_additional_variables: |
-#   VAR=1
-#   ANOTHER=value
+# To connect with implicit TLS (port 465), prefix the hostname with `ssl://` (e.g. `ssl://smtp.example.com`).
+# STARTTLS is then not used, regardless of `passbolt_environment_variables_email_transport_default_tls`.
+passbolt_environment_variables_email_transport_default_host: ""
+passbolt_environment_variables_email_transport_default_port: 587
+passbolt_environment_variables_email_transport_default_username: ""
+passbolt_environment_variables_email_transport_default_password: ""
+passbolt_environment_variables_email_transport_default_tls: true
+passbolt_environment_variables_email_default_from: ""
+passbolt_environment_variables_email_default_from_name: Passbolt
+
+# Additional environment variables.
 passbolt_environment_variables_additional_variables: ""
 
 # passbolt_restart_necessary controls whether the Passbolt systemd

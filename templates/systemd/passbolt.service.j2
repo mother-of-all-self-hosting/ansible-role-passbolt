@@ -25,11 +25,15 @@ ExecStartPre={{ devture_systemd_docker_base_host_command_sh }} -c '{{ passbolt_c
 {#
   The paths the image writes to belong to its own www-data user. Each of them gets a tmpfs owned by
   `passbolt_uid` (Docker would otherwise copy the image directory's owner onto it): the GnuPG keyring
-  (re-imported from `passbolt_gpg_path` on every start), the self-signed certificate for nginx's unused
+  (re-imported from `passbolt_data_path` on every start), the self-signed certificate for nginx's unused
   HTTPS port, PHP's sessions and the logs that do not go to stdout.
 
   nginx's global logs go to /dev/null instead, as a tmpfs over /var/log/nginx would hide the image's
   symlinks which send Passbolt's own nginx logs to stdout and stderr.
+
+  The image dumps its environment into /etc/environment on every start, so that CLI commands run with
+  `docker exec` can source it for the server key fingerprint it detects. Its own copy is not writable
+  by `passbolt_uid`, so a file under `passbolt_base_path` takes its place.
 #}
 ExecStartPre={{ devture_systemd_docker_base_host_command_docker }} create \
       --rm \
@@ -46,9 +50,10 @@ ExecStartPre={{ devture_systemd_docker_base_host_command_docker }} create \
       --env-file={{ passbolt_base_path }}/env \
       --label-file={{ passbolt_base_path }}/labels \
       --mount type=bind,src={{ passbolt_base_path }}/passwd,dst=/etc/passwd,ro \
-      --mount type=bind,src={{ passbolt_gpg_path }},dst=/etc/passbolt/gpg \
-      --mount type=bind,src={{ passbolt_jwt_path }},dst=/etc/passbolt/jwt \
-      --mount type=bind,src={{ passbolt_environment_file_path }},dst=/etc/environment \
+      --mount type=bind,src={{ passbolt_base_path }}/php.ini,dst=/etc/passbolt-php/passbolt.ini,ro \
+      --mount type=bind,src={{ passbolt_base_path }}/etc-environment,dst=/etc/environment \
+      --mount type=bind,src={{ passbolt_data_path }}/gpg,dst=/etc/passbolt/gpg \
+      --mount type=bind,src={{ passbolt_data_path }}/jwt,dst=/etc/passbolt/jwt \
       --mount type=bind,src=/dev/null,dst=/var/log/nginx/access.log \
       --mount type=bind,src=/dev/null,dst=/var/log/nginx/error.log \
       {% if passbolt_database_type == 'mysql' and passbolt_database_mysql_socket_enabled and passbolt_database_mysql_socket_path_host != '' %}
@@ -62,15 +67,18 @@ ExecStartPre={{ devture_systemd_docker_base_host_command_docker }} create \
       {% endfor %}
       --tmpfs=/tmp:rw,noexec,nosuid,size={{ passbolt_container_tmpfs_tmp_size }} \
       --tmpfs=/var/lib/passbolt/tmp:rw,noexec,nosuid,size={{ passbolt_container_tmpfs_cache_size }},mode=0700,uid={{ passbolt_uid }},gid={{ passbolt_gid }} \
-      --tmpfs=/var/lib/passbolt/.gnupg:rw,noexec,nosuid,size=1m,mode=0700,uid={{ passbolt_uid }},gid={{ passbolt_gid }} \
-      --tmpfs=/etc/passbolt/certs:rw,noexec,nosuid,size=1m,mode=0700,uid={{ passbolt_uid }},gid={{ passbolt_gid }} \
-      --tmpfs=/var/lib/php/sessions:rw,noexec,nosuid,size=16m,mode=0700,uid={{ passbolt_uid }},gid={{ passbolt_gid }} \
-      --tmpfs=/var/log/passbolt:rw,noexec,nosuid,size=16m,mode=0700,uid={{ passbolt_uid }},gid={{ passbolt_gid }} \
-      --tmpfs=/var/log/supervisor:rw,noexec,nosuid,size=16m,mode=0700,uid={{ passbolt_uid }},gid={{ passbolt_gid }} \
+      --tmpfs=/var/lib/passbolt/.gnupg:rw,noexec,nosuid,size={{ passbolt_container_tmpfs_gnupg_size }},mode=0700,uid={{ passbolt_uid }},gid={{ passbolt_gid }} \
+      --tmpfs=/etc/passbolt/certs:rw,noexec,nosuid,size={{ passbolt_container_tmpfs_certs_size }},mode=0700,uid={{ passbolt_uid }},gid={{ passbolt_gid }} \
+      --tmpfs=/var/lib/php/sessions:rw,noexec,nosuid,size={{ passbolt_container_tmpfs_sessions_size }},mode=0700,uid={{ passbolt_uid }},gid={{ passbolt_gid }} \
+      --tmpfs=/var/log/passbolt:rw,noexec,nosuid,size={{ passbolt_container_tmpfs_log_size }},mode=0700,uid={{ passbolt_uid }},gid={{ passbolt_gid }} \
+      --tmpfs=/var/log/supervisor:rw,noexec,nosuid,size={{ passbolt_container_tmpfs_supervisor_size }},mode=0700,uid={{ passbolt_uid }},gid={{ passbolt_gid }} \
       {% for arg in passbolt_container_extra_arguments %}
       {{ arg }} \
       {% endfor %}
-      {{ passbolt_container_image }}
+      {{ passbolt_container_image }} \
+      {% for arg in passbolt_process_extra_arguments %}
+      {{ arg }} \
+      {% endfor %}
 
 {% for network in passbolt_container_additional_networks %}
 ExecStartPre={{ devture_systemd_docker_base_host_command_docker }} network connect {{ network }} {{ passbolt_identifier }}

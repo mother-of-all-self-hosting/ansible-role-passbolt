@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: 2023 Slavi Pantaleev
-# SPDX-FileCopyrightText: 2025, 2026 Suguru Hirahara
+# SPDX-FileCopyrightText: 2024 Nikita Chernyi
 # SPDX-FileCopyrightText: 2026 spatterlight
+# SPDX-FileCopyrightText: 2025 Suguru Hirahara
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -27,23 +27,21 @@
 
     - name: Ensure Passbolt support files do not exist
       ansible.builtin.file:
-        path: "{{ item }}"
+        path: "{{ passbolt_base_path }}/{{ item }}"
         state: absent
       with_items:
-        - "{{ passbolt_base_path }}/env"
-        - "{{ passbolt_base_path }}/labels"
-        - "{{ passbolt_base_path }}/passwd"
-        - "{{ passbolt_environment_file_path }}"
+        - env
+        - labels
+        - passwd
+        - php.ini
+        - etc-environment
 
-    - name: Ensure Passbolt local data paths do not exist if empty
+    - name: Ensure Passbolt local data path does not exist if empty
       ansible.builtin.command:
-        cmd: "rmdir {{ item }}"
+        cmd: "rmdir {{ passbolt_data_path }}"
       register: passbolt_data_path_deletion_result
       changed_when: passbolt_data_path_deletion_result.rc == 0
       failed_when: false
-      with_items:
-        - "{{ passbolt_gpg_path }}"
-        - "{{ passbolt_jwt_path }}"
 
     - name: Ensure Passbolt base path does not exist if empty
       ansible.builtin.command:
@@ -71,27 +69,20 @@
           register: passbolt_network_deletion_result
           changed_when: passbolt_container_network in passbolt_network_deletion_result.stdout
 
-- name: Check existence of Passbolt local data paths
+- name: Check existence of Passbolt local data path
   ansible.builtin.stat:
-    path: "{{ item }}"
+    path: "{{ passbolt_data_path }}"
   register: passbolt_data_path_stat
-  with_items:
-    - "{{ passbolt_gpg_path }}"
-    - "{{ passbolt_jwt_path }}"
 
 # We just want to notify the user. Deleting data is too destructive.
-# The server's GPG key in particular is what every user's browser extension has been told to trust.
-- name: Inject the message about the remaining Passbolt local data paths
-  when: item.stat.exists | bool
+- name: Inject the message about the remaining Passbolt local data path
+  when: passbolt_data_path_stat.stat.exists | bool
   ansible.builtin.set_fact:
     devture_playbook_runtime_messages_list: |
       {{
         devture_playbook_runtime_messages_list | default([])
         +
         [
-          "Note: As the local Passbolt instance has been removed, some old data remains in `" + item.item + "`. Feel free to delete it."
+          "Note: As the local Passbolt instance has been removed, some old data remains in `" + passbolt_data_path + "`. Feel free to delete it."
         ]
       }}
-  with_items: "{{ passbolt_data_path_stat.results }}"
-  loop_control:
-    label: "{{ item.item }}"

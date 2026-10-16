@@ -1,5 +1,7 @@
 {#
-SPDX-FileCopyrightText: 2025, 2026 spatterlight
+SPDX-FileCopyrightText: 2023 Slavi Pantaleev
+SPDX-FileCopyrightText: 2025 Suguru Hirahara
+SPDX-FileCopyrightText: 2026 spatterlight
 
 SPDX-License-Identifier: AGPL-3.0-or-later
 #}
@@ -12,6 +14,17 @@ traefik.docker.network={{ passbolt_container_labels_traefik_docker_network }}
 {% endif %}
 
 {% set middlewares = [] %}
+
+{% if passbolt_container_labels_traefik_path_prefix != '/' %}
+traefik.http.middlewares.{{ passbolt_identifier }}-slashless-redirect.redirectregex.regex=^({{ passbolt_container_labels_traefik_path_prefix | quote }})$
+traefik.http.middlewares.{{ passbolt_identifier }}-slashless-redirect.redirectregex.replacement=${1}/
+{% set middlewares = middlewares + [passbolt_identifier + '-slashless-redirect'] %}
+{% endif %}
+
+{% if passbolt_container_labels_traefik_path_prefix != '/' %}
+traefik.http.middlewares.{{ passbolt_identifier }}-strip-prefix.stripprefix.prefixes={{ passbolt_container_labels_traefik_path_prefix }}
+{% set middlewares = middlewares + [passbolt_identifier + '-strip-prefix'] %}
+{% endif %}
 
 {% if passbolt_container_labels_traefik_additional_request_headers.keys() | length > 0 %}
 {% for name, value in passbolt_container_labels_traefik_additional_request_headers.items() %}

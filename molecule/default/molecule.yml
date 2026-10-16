@@ -56,12 +56,11 @@ provisioner:
 
         passbolt_container_labels_traefik_enabled: true
 
-        # Nothing resolves this host. molecule/verify_tasks.yml checks that
-        # Passbolt tried it, and STARTTLS is switched off to exercise how
-        # templates/env.j2 leaves it out.
+        # Nothing resolves this host (`.invalid` is reserved for that).
+        # molecule/verify_tasks.yml checks that Passbolt tried it. STARTTLS is
+        # left on, as an `ssl://` host must make templates/env.j2 leave it out.
         passbolt_environment_variables_email_default_from: passbolt@molecule.local
-        passbolt_environment_variables_email_transport_default_host: smtp.molecule.local
-        passbolt_environment_variables_email_transport_default_tls: false
+        passbolt_environment_variables_email_transport_default_host: ssl://smtp.molecule.invalid
 
         # Variables required for Passbolt to connect to the Postgres database (via Unix socket)
         passbolt_database_type: postgres
