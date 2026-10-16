@@ -1,0 +1,16 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Version bumps of Passbolt stay human-reviewed pull requests: the container migrates Passbolt's database on every start, and Passbolt documents no way back to an older version once that has happened.",
+  "extends": [
+    "github>mother-of-all-self-hosting/renovate-config#v1.1.0"
+  ],
+  "packageRules": [
+    {
+      "description": "Passbolt publishes no plain version tags: every release is tagged per image flavour (`5.16.0-1-ce`, `5.16.0-1-ce-non-root`, `5.16.0-1-ce-openshift`), where `-1` is the revision of the image built for that release, which does get bumped (`5.10.0-2`). `passbolt_version` holds the version and the revision (`passbolt_container_image_tag` re-adds the flavour), so `extractVersion` strips the flavour this role deploys off the tags, and the regex versioning compares the revision as a number, where semver would read it as a pre-release.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["passbolt/passbolt"],
+      "extractVersion": "^(?<version>\\d+\\.\\d+\\.\\d+-\\d+)-ce-non-root$",
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)$"
+    }
+  ]
+}
