@@ -1,0 +1,11 @@
+{#
+SPDX-FileCopyrightText: 2026 spatterlight
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+#}
+
+{# Passbolt resolves the name of the user it runs as on every start, and fails when the uid has none.
+   It also warns about any user other than a web server one, so `passbolt_uid` takes over `www-data`. #}
+root:x:0:0:root:/root:/usr/sbin/nologin
+www-data:x:{{ passbolt_uid }}:{{ passbolt_gid }}:www-data:/var/www:/usr/sbin/nologin
+nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin

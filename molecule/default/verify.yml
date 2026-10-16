@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: 2026 Slavi Pantaleev
+# SPDX-FileCopyrightText: 2026 spatterlight
+# SPDX-FileCopyrightText: 2026 Suguru Hirahara
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+- name: Verify Passbolt
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    # The command prefix that runs a single SQL statement inside the database
+    # container this scenario started, printing bare values with no headers.
+    #
+    # The docker CLI is invoked directly here and below: the ansible-lint
+    # environment used by pre-commit has no collections installed, so
+    # community.docker.* would fail the playbook syntax check.
+    passbolt_verify_db_command: >-
+      {{
+        (
+          'docker exec ' ~ (mariadb_identifier | default('mariadb')) ~
+          ' mariadb --user=' ~ (passbolt_database_mysql_username | quote) ~
+          ' --password=' ~ (passbolt_database_mysql_password | quote) ~
+          ' --batch --skip-column-names ' ~ (passbolt_database_name | quote) ~ ' -e '
+        ) if passbolt_database_type == 'mysql' else (
+          'docker exec --env=PGPASSWORD=' ~ (passbolt_database_postgres_password | quote) ~
+          ' ' ~ (postgres_identifier | default('postgres')) ~
+          ' psql -U ' ~ (passbolt_database_postgres_username | quote) ~
+          ' -d ' ~ (passbolt_database_name | quote) ~ ' -tAc '
+        )
+      }}
+
+    # The SMTP host this scenario configures. Nothing resolves it, so it shows
+    # up in the error Passbolt records when it tries to send an email.
+    passbolt_verify_email_transport_default_host: ssl://smtp.molecule.invalid
+
+    passbolt_verify_units:
+      - passbolt.service
+      - postgres.service
+
+  tasks:
+    - name: Verify that Passbolt works
+      block:
+        - name: Run the shared Passbolt verification
+          ansible.builtin.include_tasks: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/molecule/verify_tasks.yml"
+
+      rescue:
+        # Whatever went wrong, the reason is almost always in the systemd service log.
+        - name: Retrieve the Passbolt systemd service log
+          ansible.builtin.command:
+            cmd: journalctl --no-pager --output=cat --unit=passbolt.service
+          register: passbolt_service_log
+          changed_when: false
+
+        - name: Show the Passbolt systemd service log
+          ansible.builtin.debug:
+            var: passbolt_service_log.stdout_lines
+
+        - name: Fail because verification did not pass
+          ansible.builtin.fail:
+            msg: "Passbolt verification failed. The systemd service log is printed above."

@@ -1,0 +1,88 @@
+# SPDX-FileCopyrightText: 2024 Nikita Chernyi
+# SPDX-FileCopyrightText: 2025 Suguru Hirahara
+# SPDX-FileCopyrightText: 2026 spatterlight
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+- name: Check existence of Passbolt systemd service
+  ansible.builtin.stat:
+    path: "{{ devture_systemd_docker_base_systemd_path }}/{{ passbolt_identifier }}.service"
+  register: passbolt_service_stat
+
+- name: Uninstall Passbolt systemd services and files
+  when: passbolt_service_stat.stat.exists | bool
+  block:
+    - name: Ensure Passbolt systemd service is stopped
+      ansible.builtin.service:
+        name: "{{ passbolt_identifier }}"
+        state: stopped
+        enabled: false
+        daemon_reload: true
+
+    - name: Ensure Passbolt systemd service does not exist
+      ansible.builtin.file:
+        path: "{{ devture_systemd_docker_base_systemd_path }}/{{ passbolt_identifier }}.service"
+        state: absent
+
+    - name: Ensure Passbolt support files do not exist
+      ansible.builtin.file:
+        path: "{{ passbolt_base_path }}/{{ item }}"
+        state: absent
+      with_items:
+        - env
+        - labels
+        - passwd
+        - php.ini
+        - etc-environment
+
+    - name: Ensure Passbolt local data path does not exist if empty
+      ansible.builtin.command:
+        cmd: "rmdir {{ passbolt_data_path }}"
+      register: passbolt_data_path_deletion_result
+      changed_when: passbolt_data_path_deletion_result.rc == 0
+      failed_when: false
+
+    - name: Ensure Passbolt base path does not exist if empty
+      ansible.builtin.command:
+        cmd: "rmdir {{ passbolt_base_path }}"
+      register: passbolt_base_path_deletion_result
+      changed_when: passbolt_base_path_deletion_result.rc == 0
+      failed_when: false
+
+    - name: Ensure Passbolt container network does not exist
+      when: passbolt_container_network_deletion_enabled
+      block:
+        - name: Ensure Passbolt container network does not exist via community.docker.docker_network
+          when: devture_systemd_docker_base_container_network_creation_method == 'ansible-module'
+          community.docker.docker_network:
+            name: "{{ passbolt_container_network }}"
+            state: absent
+          register: passbolt_network_deletion_result
+
+        - name: Ensure Passbolt container network does not exist via ansible.builtin.command
+          when: devture_systemd_docker_base_container_network_creation_method == 'command'
+          ansible.builtin.command:
+            cmd: >-
+              {{ devture_systemd_docker_base_host_command_docker }} network rm
+              {{ passbolt_container_network }}
+          register: passbolt_network_deletion_result
+          changed_when: passbolt_container_network in passbolt_network_deletion_result.stdout
+
+- name: Check existence of Passbolt local data path
+  ansible.builtin.stat:
+    path: "{{ passbolt_data_path }}"
+  register: passbolt_data_path_stat
+
+# We just want to notify the user. Deleting data is too destructive.
+- name: Inject the message about the remaining Passbolt local data path
+  when: passbolt_data_path_stat.stat.exists | bool
+  ansible.builtin.set_fact:
+    devture_playbook_runtime_messages_list: |
+      {{
+        devture_playbook_runtime_messages_list | default([])
+        +
+        [
+          "Note: As the local Passbolt instance has been removed, some old data remains in `" + passbolt_data_path + "`. Feel free to delete it."
+        ]
+      }}

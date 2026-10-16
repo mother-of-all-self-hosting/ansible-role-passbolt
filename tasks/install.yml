@@ -1,0 +1,153 @@
+# SPDX-FileCopyrightText: 2023-2026 Slavi Pantaleev
+# SPDX-FileCopyrightText: 2025, 2026 Suguru Hirahara
+# SPDX-FileCopyrightText: 2026 spatterlight
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+- name: Ensure Passbolt paths exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "{{ item.mode }}"
+    owner: "{{ passbolt_uid }}"
+    group: "{{ passbolt_gid }}"
+  with_items:
+    # The server's private key, which the entrypoint writes world-readable, is kept beneath it.
+    - { path: "{{ passbolt_base_path }}", mode: "0700" }
+    - { path: "{{ passbolt_data_path }}", mode: "0750" }
+    - { path: "{{ passbolt_data_path }}/gpg", mode: "0750" }
+
+# The container's entrypoint writes its environment into this file on every start. It has to
+# exist beforehand, as Docker refuses to bind-mount a source path which does not.
+- name: Ensure Passbolt environment file exists
+  ansible.builtin.file:
+    path: "{{ passbolt_base_path }}/etc-environment"
+    state: touch
+    mode: "0600"
+    owner: "{{ passbolt_uid }}"
+    group: "{{ passbolt_gid }}"
+    access_time: preserve
+    modification_time: preserve
+
+- name: Ensure Passbolt support files installed
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/{{ item }}.j2"
+    dest: "{{ passbolt_base_path }}/{{ item }}"
+    mode: "0640"
+    owner: "{{ passbolt_uid }}"
+    group: "{{ passbolt_gid }}"
+  with_items:
+    - env
+    - labels
+    - passwd
+    - php.ini
+  register: passbolt_support_files_result
+
+- name: Ensure Passbolt container image is pulled via community.docker.docker_image_pull
+  when: devture_systemd_docker_base_container_image_pull_method == 'ansible-module'
+  community.docker.docker_image_pull:
+    name: "{{ passbolt_container_image }}"
+    pull: always
+  register: passbolt_container_image_pull_result_ansible_module
+  retries: "{{ devture_playbook_help_container_retries_count }}"
+  delay: "{{ devture_playbook_help_container_retries_delay }}"
+  until: passbolt_container_image_pull_result_ansible_module is not failed
+
+- name: Ensure Passbolt container image is pulled via ansible.builtin.command
+  when: devture_systemd_docker_base_container_image_pull_method == 'command'
+  ansible.builtin.command:
+    cmd: "{{ devture_systemd_docker_base_host_command_docker }} pull {{ passbolt_container_image }}"
+  register: passbolt_container_image_pull_result_command
+  retries: "{{ devture_playbook_help_container_retries_count }}"
+  delay: "{{ devture_playbook_help_container_retries_delay }}"
+  until: passbolt_container_image_pull_result_command is not failed
+  changed_when: "'Downloaded newer image' in passbolt_container_image_pull_result_command.stdout"
+
+# Passbolt signs the access tokens of its mobile and desktop apps with this key pair, and its
+# healthcheck reports a JWT directory it can write to as an error: whoever replaces the keys can
+# sign tokens for any user. The image's entrypoint can only generate them as the user Passbolt
+# runs as, so the role generates them with the image's own `openssl` and hands them to `root`.
+# Passbolt reads them through `passbolt_container_image_gid`. On every start the entrypoint then
+# warns that it could not adjust their permissions, which is expected.
+- name: Ensure Passbolt JWT path exists
+  ansible.builtin.file:
+    path: "{{ passbolt_data_path }}/jwt"
+    state: directory
+    mode: "0750"
+    owner: root
+    group: "{{ passbolt_container_image_gid }}"
+
+- name: Check existence of Passbolt JWT key pair
+  ansible.builtin.stat:
+    path: "{{ passbolt_data_path }}/jwt/{{ item }}"
+  register: passbolt_jwt_key_pair_stat
+  with_items:
+    - jwt.key
+    - jwt.pem
+
+- name: Ensure Passbolt JWT key pair is generated
+  when: passbolt_jwt_key_pair_stat.results | rejectattr('stat.exists') | list | length > 0
+  ansible.builtin.command:
+    cmd: >-
+      {{ devture_systemd_docker_base_host_command_docker }} run
+      --rm
+      --user=0:{{ passbolt_container_image_gid }}
+      --cap-drop=ALL
+      --network=none
+      --read-only
+      --mount type=bind,src={{ passbolt_data_path }}/jwt,dst=/etc/passbolt/jwt
+      --entrypoint=/bin/sh
+      {{ passbolt_container_image }}
+      -c
+      'openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out /etc/passbolt/jwt/jwt.key
+      && openssl pkey -in /etc/passbolt/jwt/jwt.key -pubout -out /etc/passbolt/jwt/jwt.pem'
+  changed_when: true
+
+- name: Ensure Passbolt JWT key pair is readable but not writable by Passbolt
+  ansible.builtin.file:
+    path: "{{ passbolt_data_path }}/jwt/{{ item }}"
+    mode: "0640"
+    owner: root
+    group: "{{ passbolt_container_image_gid }}"
+  with_items:
+    - jwt.key
+    - jwt.pem
+
+- name: Ensure Passbolt container network is created via community.docker.docker_network
+  when: devture_systemd_docker_base_container_network_creation_method == 'ansible-module'
+  community.docker.docker_network:
+    enable_ipv6: "{{ devture_systemd_docker_base_ipv6_enabled }}"
+    name: "{{ passbolt_container_network }}"
+    driver: bridge
+    driver_options: "{{ devture_systemd_docker_base_container_networks_driver_options }}"
+  register: passbolt_network_creation_result
+
+- name: Ensure Passbolt container network is created via ansible.builtin.command
+  when: devture_systemd_docker_base_container_network_creation_method == 'command'
+  ansible.builtin.command:
+    cmd: >-
+      {{ devture_systemd_docker_base_host_command_docker }} network create
+      {% if devture_systemd_docker_base_ipv6_enabled %}--ipv6{% endif %}
+      {{ devture_systemd_docker_base_container_networks_driver_options_string }}
+      {{ passbolt_container_network }}
+  register: passbolt_network_creation_result
+  changed_when: passbolt_network_creation_result.rc == 0
+  failed_when: passbolt_network_creation_result.rc != 0 and 'already exists' not in passbolt_network_creation_result.stderr
+
+- name: Ensure Passbolt systemd service is present
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/systemd/passbolt.service.j2"
+    dest: "{{ devture_systemd_docker_base_systemd_path }}/{{ passbolt_identifier }}.service"
+    mode: "0644"
+  register: passbolt_systemd_service_result
+
+- name: Determine whether Passbolt needs a restart
+  ansible.builtin.set_fact:
+    passbolt_restart_necessary: >-
+      {{
+        passbolt_support_files_result.changed | default(false)
+        or passbolt_systemd_service_result.changed | default(false)
+        or passbolt_container_image_pull_result_ansible_module.changed | default(false)
+        or passbolt_container_image_pull_result_command.changed | default(false)
+      }}

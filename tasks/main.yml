@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2023 Slavi Pantaleev
+# SPDX-FileCopyrightText: 2025, 2026 Suguru Hirahara
+# SPDX-FileCopyrightText: 2026 spatterlight
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+- name: Perform Passbolt installation tasks
+  when: passbolt_enabled | bool
+  tags:
+    - setup-all
+    - setup-passbolt
+    - install-all
+    - install-passbolt
+  block:
+    - name: Validate Passbolt configuration
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/validate_config.yml"
+    - name: Install Passbolt
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/install.yml"
+
+- name: Perform Passbolt uninstallation tasks
+  when: not passbolt_enabled | bool
+  tags:
+    - setup-all
+    - setup-passbolt
+  block:
+    - name: Uninstall Passbolt
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/uninstall.yml"

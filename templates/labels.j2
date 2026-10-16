@@ -1,0 +1,62 @@
+{#
+SPDX-FileCopyrightText: 2023 Slavi Pantaleev
+SPDX-FileCopyrightText: 2025 Suguru Hirahara
+SPDX-FileCopyrightText: 2026 spatterlight
+
+SPDX-License-Identifier: AGPL-3.0-or-later
+#}
+
+{% if passbolt_container_labels_traefik_enabled %}
+traefik.enable=true
+
+{% if passbolt_container_labels_traefik_docker_network %}
+traefik.docker.network={{ passbolt_container_labels_traefik_docker_network }}
+{% endif %}
+
+{% set middlewares = [] %}
+
+{% if passbolt_container_labels_traefik_path_prefix != '/' %}
+traefik.http.middlewares.{{ passbolt_identifier }}-slashless-redirect.redirectregex.regex=^({{ passbolt_container_labels_traefik_path_prefix | quote }})$
+traefik.http.middlewares.{{ passbolt_identifier }}-slashless-redirect.redirectregex.replacement=${1}/
+{% set middlewares = middlewares + [passbolt_identifier + '-slashless-redirect'] %}
+{% endif %}
+
+{% if passbolt_container_labels_traefik_path_prefix != '/' %}
+traefik.http.middlewares.{{ passbolt_identifier }}-strip-prefix.stripprefix.prefixes={{ passbolt_container_labels_traefik_path_prefix }}
+{% set middlewares = middlewares + [passbolt_identifier + '-strip-prefix'] %}
+{% endif %}
+
+{% if passbolt_container_labels_traefik_additional_request_headers.keys() | length > 0 %}
+{% for name, value in passbolt_container_labels_traefik_additional_request_headers.items() %}
+traefik.http.middlewares.{{ passbolt_identifier }}-add-request-headers.headers.customrequestheaders.{{ name }}={{ value }}
+{% endfor %}
+{% set middlewares = middlewares + [passbolt_identifier + '-add-request-headers'] %}
+{% endif %}
+
+{% if passbolt_container_labels_traefik_additional_response_headers.keys() | length > 0 %}
+{% for name, value in passbolt_container_labels_traefik_additional_response_headers.items() %}
+traefik.http.middlewares.{{ passbolt_identifier }}-add-response-headers.headers.customresponseheaders.{{ name }}={{ value }}
+{% endfor %}
+{% set middlewares = middlewares + [passbolt_identifier + '-add-response-headers'] %}
+{% endif %}
+
+traefik.http.routers.{{ passbolt_identifier }}.rule={{ passbolt_container_labels_traefik_rule }}
+{% if passbolt_container_labels_traefik_priority | int > 0 %}
+traefik.http.routers.{{ passbolt_identifier }}.priority={{ passbolt_container_labels_traefik_priority }}
+{% endif %}
+traefik.http.routers.{{ passbolt_identifier }}.service={{ passbolt_identifier }}
+{% if middlewares | length > 0 %}
+traefik.http.routers.{{ passbolt_identifier }}.middlewares={{ middlewares | join(',') }}
+{% endif %}
+traefik.http.routers.{{ passbolt_identifier }}.entrypoints={{ passbolt_container_labels_traefik_entrypoints }}
+traefik.http.routers.{{ passbolt_identifier }}.tls={{ passbolt_container_labels_traefik_tls | to_json }}
+{% if passbolt_container_labels_traefik_tls %}
+traefik.http.routers.{{ passbolt_identifier }}.tls.certResolver={{ passbolt_container_labels_traefik_tls_certResolver }}
+{% endif %}
+
+traefik.http.services.{{ passbolt_identifier }}.loadbalancer.server.port={{ passbolt_container_http_port }}
+{% endif %}
+
+{% for arg in passbolt_container_labels_additional_labels %}
+{{ arg }}
+{% endfor %}

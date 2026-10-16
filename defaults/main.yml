@@ -1,0 +1,353 @@
+# SPDX-FileCopyrightText: 2023, 2024 Nikita Chernyi
+# SPDX-FileCopyrightText: 2023-2025 Slavi Pantaleev
+# SPDX-FileCopyrightText: 2024 Sergio Durigan Junior
+# SPDX-FileCopyrightText: 2025 MASH project contributors
+# SPDX-FileCopyrightText: 2025, 2026 Suguru Hirahara
+# SPDX-FileCopyrightText: 2026 spatterlight
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+# Project source code URL: https://github.com/passbolt/passbolt_api
+
+passbolt_enabled: true
+
+passbolt_identifier: passbolt
+passbolt_base_path: "/{{ passbolt_identifier }}"
+passbolt_data_path: "{{ passbolt_base_path }}/data"
+
+# The version is Passbolt's own version, followed by the revision of the Docker image built for it (e.g. `5.16.0-1`).
+# renovate: datasource=docker depName=passbolt/passbolt versioning=semver
+passbolt_version: 5.16.0-1
+
+passbolt_uid: ""
+passbolt_gid: ""
+
+# The group that owns Passbolt's configuration inside the container image (`www-data`, gid 33).
+#
+# The container runs as `passbolt_uid`:`passbolt_gid`, but the image only grants its own `www-data`
+# group access to `/etc/passbolt` (`rwxrwx---`). Adding this group as a supplementary group is what
+# lets Passbolt read its configuration when `passbolt_uid` is anything other than 33.
+#
+# The JWT key pair, which the role generates, is owned by `root` and this group too, so that Passbolt
+# can read the keys it signs its access tokens with, but not replace them.
+passbolt_container_image_gid: 33
+
+# The scheme used for serving Passbolt.
+passbolt_scheme: https
+
+# The hostname at which Passbolt is served.
+passbolt_hostname: ""
+
+# The path at which Passbolt is served.
+# This value must either be `/` or not end with a slash (e.g. `/passbolt`).
+#
+# Hosting Passbolt under a subpath does not seem to be possible due to Passbolt's
+# technical limitations.
+passbolt_path_prefix: /
+
+passbolt_container_image: "{{ passbolt_container_image_registry_prefix }}passbolt/passbolt:{{ passbolt_container_image_tag }}"
+passbolt_container_image_tag: "{{ passbolt_version }}-ce-non-root"
+passbolt_container_image_registry_prefix: "{{ passbolt_container_image_registry_prefix_upstream }}"
+passbolt_container_image_registry_prefix_upstream: "{{ passbolt_container_image_registry_prefix_upstream_default }}"
+passbolt_container_image_registry_prefix_upstream_default: docker.io/
+
+# The base container network. It will be auto-created by this role if it doesn't exist already.
+passbolt_container_network: "{{ passbolt_identifier }}"
+
+# Control if the container network is deleted on uninstalling.
+passbolt_container_network_deletion_enabled: true
+
+# Specify how the container publishes its HTTP port (as defined by `passbolt_container_http_port`).
+#
+# Takes an "<ip>:<port>" or "<port>" value (e.g. "127.0.0.1:2586"), or empty string to not expose.
+passbolt_container_http_host_bind_port: ""
+
+# The port number in the container
+# The non-root image hard-codes it.
+passbolt_container_http_port: 8080
+
+# A list of additional container networks that the container would be connected to.
+# The role does not create these networks, so make sure they already exist.
+# Use this to expose this container to another reverse proxy, which runs in a different container network.
+passbolt_container_additional_networks: "{{ passbolt_container_additional_networks_auto + passbolt_container_additional_networks_custom }}"
+passbolt_container_additional_networks_auto: []
+passbolt_container_additional_networks_custom: []
+
+# A list of additional "volumes" to mount in the container.
+# This list gets populated dynamically at runtime. You can provide a different default value,
+# if you wish to mount your own files into the container.
+# Contains definition objects like this: `{"type": "bind", "src": "/outside", "dst": "/inside", "options": "readonly"}.
+# See the `--mount` documentation for the `docker run` command.
+passbolt_container_additional_volumes: "{{ passbolt_container_additional_volumes_auto + passbolt_container_additional_volumes_custom }}"
+passbolt_container_additional_volumes_auto: []
+passbolt_container_additional_volumes_custom: []
+
+# passbolt_container_labels_traefik_enabled controls whether labels to assist a Traefik reverse-proxy will be attached to the container.
+# See `../templates/labels.j2` for details.
+#
+# To inject your own other container labels, see `passbolt_container_labels_additional_labels_custom`.
+passbolt_container_labels_traefik_enabled: true
+passbolt_container_labels_traefik_docker_network: "{{ passbolt_container_network }}"
+passbolt_container_labels_traefik_hostname: "{{ passbolt_hostname }}"
+# The path prefix must either be `/` or not end with a slash (e.g. `/passbolt`).
+passbolt_container_labels_traefik_path_prefix: "{{ passbolt_path_prefix }}"
+passbolt_container_labels_traefik_rule: "Host(`{{ passbolt_container_labels_traefik_hostname }}`){% if passbolt_container_labels_traefik_path_prefix != '/' %} && PathPrefix(`{{ passbolt_container_labels_traefik_path_prefix }}`){% endif %}"
+passbolt_container_labels_traefik_priority: 0
+passbolt_container_labels_traefik_entrypoints: web-secure
+passbolt_container_labels_traefik_tls: "{{ passbolt_container_labels_traefik_entrypoints != 'web' }}"
+passbolt_container_labels_traefik_tls_certResolver: default  # noqa var-naming
+
+# Controls which additional headers to attach to all HTTP requests.
+# To add your own custom request headers, use `passbolt_container_labels_traefik_additional_request_headers_custom`
+passbolt_container_labels_traefik_additional_request_headers: "{{ passbolt_container_labels_traefik_additional_request_headers_auto | combine(passbolt_container_labels_traefik_additional_request_headers_custom) }}"
+passbolt_container_labels_traefik_additional_request_headers_auto: {}
+passbolt_container_labels_traefik_additional_request_headers_custom: {}
+
+# Controls which additional headers to attach to all HTTP responses.
+# To add your own custom response headers, use `passbolt_container_labels_traefik_additional_response_headers_custom`
+passbolt_container_labels_traefik_additional_response_headers: "{{ passbolt_container_labels_traefik_additional_response_headers_auto | combine(passbolt_container_labels_traefik_additional_response_headers_custom) }}"
+passbolt_container_labels_traefik_additional_response_headers_auto: |
+  {{
+    {}
+    | combine ({'X-XSS-Protection': passbolt_http_header_xss_protection} if passbolt_http_header_xss_protection else {})
+    | combine ({'X-Content-Type-Options': passbolt_http_header_content_type_options} if passbolt_http_header_content_type_options else {})
+    | combine ({'Content-Security-Policy': passbolt_http_header_content_security_policy} if passbolt_http_header_content_security_policy else {})
+    | combine ({'Permissions-Policy': passbolt_http_header_permissions_policy} if passbolt_http_header_permissions_policy else {})
+    | combine ({'Strict-Transport-Security': passbolt_http_header_strict_transport_security} if passbolt_http_header_strict_transport_security and passbolt_container_labels_traefik_tls else {})
+  }}
+passbolt_container_labels_traefik_additional_response_headers_custom: {}
+
+# passbolt_container_labels_additional_labels contains a multiline string with additional labels to add to the container label file.
+# See `../templates/labels.j2` for details.
+# To add your own custom labels, use `passbolt_container_labels_additional_labels_custom`
+#
+# Example:
+# passbolt_container_labels_additional_labels_custom:
+#   - my.label=1
+#   - another.label="here"
+passbolt_container_labels_additional_labels: "{{ passbolt_container_labels_additional_labels_auto + passbolt_container_labels_additional_labels_custom }}"
+passbolt_container_labels_additional_labels_auto: []
+passbolt_container_labels_additional_labels_custom: []
+
+# Specify the size of the container's tmpfs volume (/tmp)
+passbolt_container_tmpfs_tmp_size: 128m
+
+# Specify the size of the container's tmpfs volume (/var/lib/passbolt/tmp)
+passbolt_container_tmpfs_cache_size: 64m
+
+# Specify the size of the container's tmpfs volume (/var/lib/passbolt/.gnupg)
+# Passbolt adds the public key of every user who logs in to this keyring.
+passbolt_container_tmpfs_gnupg_size: 64m
+
+# Specify the size of the container's tmpfs volume (/etc/passbolt/certs)
+passbolt_container_tmpfs_certs_size: 1m
+
+# Specify the size of the container's tmpfs volume (/var/lib/php/sessions)
+passbolt_container_tmpfs_sessions_size: 64m
+
+# Specify the size of the container's tmpfs volume (/var/log/passbolt)
+passbolt_container_tmpfs_log_size: 16m
+
+# Specify the size of the container's tmpfs volume (/var/log/supervisor)
+passbolt_container_tmpfs_supervisor_size: 16m
+
+# A list of extra arguments to pass to the container (`docker create` command)
+passbolt_container_extra_arguments: "{{ passbolt_container_extra_arguments_auto + passbolt_container_extra_arguments_custom }}"
+passbolt_container_extra_arguments_auto: []
+passbolt_container_extra_arguments_custom: []
+
+# A list of extra arguments to pass to the process inside the container
+# Example: ['--SOME_ARGUMENT']
+#
+# The image starts Passbolt with its command (`/docker-entrypoint.sh`), not with an entrypoint,
+# so these arguments replace that command instead of being passed to it.
+passbolt_process_extra_arguments: "{{ passbolt_process_extra_arguments_auto + passbolt_process_extra_arguments_custom }}"
+passbolt_process_extra_arguments_auto: []
+passbolt_process_extra_arguments_custom: []
+
+# Specifies the value of the `X-XSS-Protection` header
+# Stops pages from loading when they detect reflected cross-site scripting (XSS) attacks.
+#
+# Learn more about it is here:
+# - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-XSS-Protection
+# - https://portswigger.net/web-security/cross-site-scripting/reflected
+passbolt_http_header_xss_protection: "1; mode=block"
+
+# Specifies the value of the `X-Content-Type-Options` header.
+# See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options
+passbolt_http_header_content_type_options: nosniff
+
+# Specifies the value of the `Content-Security-Policy` header.
+# See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy
+#
+# We intentionally don't set this, because Passbolt does it and we'd rather not override its (better) value.
+passbolt_http_header_content_security_policy: ""
+
+# Specifies the value of the `Permissions-Policy` header.
+# See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy
+#
+# We intentionally don't set this, because Passbolt does it and we'd rather not override its (better) value.
+passbolt_http_header_permissions_policy: ""
+
+# Specifies the value of the `Strict-Transport-Security` header.
+# See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security
+passbolt_http_header_strict_transport_security: "max-age=31536000; includeSubDomains{{ '; preload' if passbolt_hsts_preload_enabled else '' }}"
+
+# Controls if HSTS preloading is enabled
+#
+# In its strongest and recommended form, the [HSTS policy](https://www.chromium.org/hsts) includes all subdomains, and
+# indicates a willingness to be "preloaded" into browsers:
+# `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`
+# For more information visit:
+# - https://en.wikipedia.org/wiki/HTTP_Strict_Transport_Security
+# - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security
+# - https://hstspreload.org/#opt-in
+# See: `passbolt_http_header_strict_transport_security`
+passbolt_hsts_preload_enabled: false
+
+# List of systemd services that the Passbolt systemd service depends on
+passbolt_systemd_required_services_list: "{{ passbolt_systemd_required_services_list_default + passbolt_systemd_required_services_list_auto + passbolt_systemd_required_services_list_custom }}"
+passbolt_systemd_required_services_list_default: "{{ [devture_systemd_docker_base_docker_service_name] if devture_systemd_docker_base_docker_service_name else [] }}"
+passbolt_systemd_required_services_list_auto: []
+passbolt_systemd_required_services_list_custom: []
+
+# List of systemd services that the Passbolt systemd service wants
+passbolt_systemd_wanted_services_list: "{{ passbolt_systemd_wanted_services_list_default + passbolt_systemd_wanted_services_list_auto + passbolt_systemd_wanted_services_list_custom }}"
+passbolt_systemd_wanted_services_list_default: []
+passbolt_systemd_wanted_services_list_auto: []
+passbolt_systemd_wanted_services_list_custom: []
+
+# Controls how long to wait for the container to stop gracefully before killing it.
+passbolt_container_stop_grace_time_seconds: "{{ devture_systemd_docker_base_container_stop_grace_time_seconds }}"
+
+# Controls how long the pre-start cleanup should wait for stale container-name release
+# before failing startup explicitly.
+passbolt_container_cleanup_timeout_seconds: "{{ devture_systemd_docker_base_container_cleanup_timeout_seconds }}"
+
+# Controls the delay between pre-start cleanup retries.
+passbolt_container_cleanup_retry_delay_seconds: "{{ devture_systemd_docker_base_container_cleanup_retry_delay_seconds }}"
+
+# Shell command used in the systemd pre-start phase to deterministically remove a stale
+# container and wait until Docker releases its name.
+passbolt_container_cleanup_command: |
+  i=0;
+  while [ "$i" -lt {{ passbolt_container_cleanup_timeout_seconds }} ]; do
+  {{ devture_systemd_docker_base_host_command_docker }} stop -t {{ passbolt_container_stop_grace_time_seconds }} {{ passbolt_identifier }} >/dev/null 2>&1 || true;
+  {{ devture_systemd_docker_base_host_command_docker }} rm -f {{ passbolt_identifier }} >/dev/null 2>&1 || true;
+  if {{ devture_systemd_docker_base_host_command_docker }} container inspect {{ passbolt_identifier }} >/dev/null 2>&1; then
+  i=$((i + 1));
+  sleep {{ passbolt_container_cleanup_retry_delay_seconds }};
+  continue;
+  fi;
+  if {{ devture_systemd_docker_base_host_command_docker }} info >/dev/null 2>&1; then
+  exit 0;
+  fi;
+  echo "Failed to query Docker daemon while cleaning up {{ passbolt_identifier }}" >&2;
+  exit 1;
+  done;
+  echo "Failed to remove stale container {{ passbolt_identifier }} after {{ passbolt_container_cleanup_timeout_seconds }} attempts" >&2;
+  exit 1
+
+########################################################################
+#                                                                      #
+# database                                                             #
+#                                                                      #
+########################################################################
+
+# Specify a database driver to use
+# Valid values: mysql, postgres
+passbolt_database_type: ""
+
+# Specify database configuration
+passbolt_database_mysql_hostname: ""
+passbolt_database_mysql_port: 3306
+passbolt_database_mysql_username: passbolt
+passbolt_database_mysql_password: ""
+passbolt_database_postgres_hostname: ""
+passbolt_database_postgres_port: 5432
+passbolt_database_postgres_username: passbolt
+passbolt_database_postgres_password: ""
+passbolt_database_name: passbolt
+
+# Control if the database connection to MySQL is made via a Unix socket
+passbolt_database_mysql_socket_enabled: true
+
+# Specify the path to the MySQL Unix socket path inside the Passbolt container
+passbolt_database_mysql_socket_path_container: /run-mysqld
+
+# Specify the path to the MySQL Unix socket path on the host (bind-mount source)
+passbolt_database_mysql_socket_path_host: ""
+
+# Control if the database connection to Postgres is made via a Unix socket
+passbolt_database_postgres_socket_enabled: true
+
+# Specify the path to the Postgres Unix socket path inside the Passbolt container
+passbolt_database_postgres_socket_path_container: /run-postgres
+
+# Specify the path to the Postgres Unix socket path on the host (bind-mount source)
+passbolt_database_postgres_socket_path_host: ""
+
+# Specify the URL of the MySQL database when it is reached via a Unix socket.
+# Passbolt has no dedicated setting for the socket, but merges the query string of this URL into its database settings.
+passbolt_environment_variables_datasources_default_url_mysql: "{{ ('mysql://localhost/' + passbolt_database_name + '?unix_socket=' + passbolt_database_mysql_socket_path_container + '/mysqld.sock') if passbolt_database_mysql_socket_enabled else '' }}"
+
+# Specify database host address or absolute path for Unix socket
+passbolt_environment_variables_datasources_default_host_postgres: "{{ passbolt_database_postgres_socket_path_container if passbolt_database_postgres_socket_enabled else passbolt_database_postgres_hostname }}"
+
+########################################################################
+#                                                                      #
+# /database                                                            #
+#                                                                      #
+########################################################################
+
+# Specify the timezone
+passbolt_environment_variables_tz: UTC
+
+# The URL at which Passbolt is served. Passbolt builds every link it hands out from it,
+# including the ones in the emails it sends.
+passbolt_environment_variables_app_full_base_url: "{{ passbolt_scheme }}://{{ passbolt_hostname }}{{ '' if passbolt_path_prefix == '/' else passbolt_path_prefix }}"
+
+# Controls the HTTPS environment variable, which tells PHP that the request reached the reverse proxy over HTTPS.
+# TLS ends before the container, so without it Passbolt would issue its session and CSRF cookies without the `Secure` flag.
+passbolt_environment_variables_https: "{{ 'on' if passbolt_scheme == 'https' else '' }}"
+
+# Controls whether Passbolt redirects plain HTTP requests to HTTPS and sends its own `Strict-Transport-Security` header.
+# Passbolt's healthcheck reports it as an error when it is off. It cannot cause a redirect loop behind the reverse proxy,
+# as the HTTPS environment variable already makes Passbolt treat every request as an HTTPS one.
+passbolt_environment_variables_passbolt_ssl_force: "{{ passbolt_scheme == 'https' }}"
+
+# Controls whether Passbolt takes the client's address from the `X-Forwarded-For` header set by the reverse proxy,
+# instead of recording the reverse proxy's own address in its logs and emails.
+# When `passbolt_container_http_host_bind_port` publishes the port, clients connecting to it directly can spoof that header.
+passbolt_environment_variables_passbolt_security_proxies_active: "{{ passbolt_container_labels_traefik_enabled }}"
+
+# Controls where Passbolt writes its notice, info and debug log messages.
+# The image sends its error log to the console already, and this does the same for the rest,
+# instead of writing them to a file which grows on a tmpfs.
+passbolt_environment_variables_log_debug_url: "console://?levels[]=notice&levels[]=info&levels[]=debug"
+
+# Specify mailer configuration
+#
+# To connect with implicit TLS (port 465), prefix the hostname with `ssl://` (e.g. `ssl://smtp.example.com`).
+# STARTTLS is then not used, regardless of `passbolt_environment_variables_email_transport_default_tls`.
+passbolt_environment_variables_email_transport_default_host: ""
+passbolt_environment_variables_email_transport_default_port: 587
+passbolt_environment_variables_email_transport_default_username: ""
+passbolt_environment_variables_email_transport_default_password: ""
+passbolt_environment_variables_email_transport_default_tls: true
+passbolt_environment_variables_email_default_from: ""
+passbolt_environment_variables_email_default_from_name: Passbolt
+
+# Additional environment variables.
+passbolt_environment_variables_additional_variables: ""
+
+# passbolt_restart_necessary controls whether the Passbolt systemd
+# service will be restarted (when true) or merely started (when false) by the
+# systemd service manager role (when conditional restart is enabled).
+#
+# This value is automatically computed during installation based on whether
+# any configuration files, the systemd service file, or the container image changed.
+# The default of `false` means "no restart needed" — appropriate when the role's
+# installation tasks haven't run (e.g., due to --tags skipping them).
+passbolt_restart_necessary: false

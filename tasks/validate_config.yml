@@ -1,0 +1,119 @@
+# SPDX-FileCopyrightText: 2024 Nikita Chernyi
+# SPDX-FileCopyrightText: 2026 spatterlight
+# SPDX-FileCopyrightText: 2026 Suguru Hirahara
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+---
+- name: Fail if required Passbolt settings not defined
+  ansible.builtin.fail:
+    msg: >-
+      You need to define a required configuration setting (`{{ item }}`).
+  when: "lookup('vars', item, default='') | string | length == 0"
+  with_items:
+    - passbolt_uid
+    - passbolt_gid
+    - passbolt_hostname
+    - passbolt_path_prefix
+    - passbolt_container_network
+
+- name: Fail if Passbolt database type invalid
+  ansible.builtin.fail:
+    msg: >-
+      passbolt_database_type must be 'mysql' or 'postgres'
+  when: "passbolt_database_type not in ['mysql', 'postgres']"
+
+- name: Run if Passbolt + MySQL integration is enabled
+  when: passbolt_database_type == 'mysql'
+  block:
+    - name: Fail if required Passbolt + MySQL integration settings not defined
+      ansible.builtin.fail:
+        msg: >-
+          You need to define a required configuration setting (`{{ item }}`) when `passbolt_database_type` is `mysql`
+      when: "lookup('vars', item, default='') | string | length == 0"
+      with_items:
+        - passbolt_database_mysql_password
+
+    - name: Fail if MySQL socket host path for Passbolt is missing when Unix socket is enabled
+      ansible.builtin.fail:
+        msg: >-
+          You need to define `passbolt_database_mysql_socket_path_host` when `passbolt_database_type` is `mysql`
+          and `passbolt_database_mysql_socket_enabled` is `true`.
+      when: >-
+        passbolt_database_mysql_socket_enabled and
+        passbolt_database_mysql_socket_path_host | string | length == 0
+
+    - name: Fail if MySQL hostname for Passbolt is missing when Unix socket is disabled
+      ansible.builtin.fail:
+        msg: >-
+          You need to define `passbolt_database_mysql_hostname` when `passbolt_database_type` is `mysql`
+          and `passbolt_database_mysql_socket_enabled` is `false`.
+      when: >-
+        not passbolt_database_mysql_socket_enabled and
+        passbolt_database_mysql_hostname | string | length == 0
+
+- name: Run if Passbolt + Postgres integration is enabled
+  when: passbolt_database_type == 'postgres'
+  block:
+    - name: Fail if required Passbolt + Postgres integration settings not defined
+      ansible.builtin.fail:
+        msg: >-
+          You need to define a required configuration setting (`{{ item }}`) when `passbolt_database_type` is `postgres`
+      when: "lookup('vars', item, default='') | string | length == 0"
+      with_items:
+        - passbolt_database_postgres_password
+
+    - name: Fail if Postgres socket host path for Passbolt is missing when Unix socket is enabled
+      ansible.builtin.fail:
+        msg: >-
+          You need to define `passbolt_database_postgres_socket_path_host` when `passbolt_database_type` is `postgres`
+          and `passbolt_database_postgres_socket_enabled` is `true`.
+      when: >-
+        passbolt_database_postgres_socket_enabled and
+        passbolt_database_postgres_socket_path_host | string | length == 0
+
+    - name: Fail if Postgres hostname for Passbolt is missing when Unix socket is disabled
+      ansible.builtin.fail:
+        msg: >-
+          You need to define `passbolt_database_postgres_hostname` when `passbolt_database_type` is `postgres`
+          and `passbolt_database_postgres_socket_enabled` is `false`.
+      when: >-
+        not passbolt_database_postgres_socket_enabled and
+        passbolt_database_postgres_hostname | string | length == 0
+
+- name: Fail if Passbolt mailer sender is missing when a SMTP server is defined
+  ansible.builtin.fail:
+    msg: >-
+      You need to define `passbolt_environment_variables_email_default_from`
+      when `passbolt_environment_variables_email_transport_default_host` is defined.
+  when: >-
+    passbolt_environment_variables_email_transport_default_host | string | length > 0 and
+    passbolt_environment_variables_email_default_from | string | length == 0
+
+- name: Run if Traefik is enabled
+  when: passbolt_container_labels_traefik_enabled | bool
+  block:
+    - name: Fail if Traefik settings required for Passbolt are not defined
+      ansible.builtin.fail:
+        msg: >-
+          You need to define a required configuration setting (`{{ item.name }}`).
+      when: "item.when | bool and lookup('vars', item.name, default='') | string | length == 0"
+      with_items:
+        - { "name": "passbolt_container_labels_traefik_hostname", when: true }
+        - { "name": "passbolt_container_labels_traefik_path_prefix", when: true }
+
+    - name: Fail if passbolt_container_labels_traefik_path_prefix is different than /
+      ansible.builtin.fail:
+        msg: >-
+          passbolt_container_labels_traefik_path_prefix (`{{ passbolt_container_labels_traefik_path_prefix }}`) must be `/`.
+          Passbolt does not support hosting under a subpath yet.
+      when: "passbolt_container_labels_traefik_path_prefix != '/'"
+
+    # We ensure it doesn't end with a slash, because we handle both (slash and no-slash).
+    # Knowing that `passbolt_container_labels_traefik_path_prefix` does not end with a slash
+    # ensures we know how to set these routes up without having to do "does it end with a slash" checks elsewhere.
+    - name: Fail if passbolt_container_labels_traefik_path_prefix ends with a slash
+      ansible.builtin.fail:
+        msg: >-
+          passbolt_container_labels_traefik_path_prefix (`{{ passbolt_container_labels_traefik_path_prefix }}`) must either be `/` or not end with a slash (e.g. `/passbolt`).
+      when: "passbolt_container_labels_traefik_path_prefix != '/' and passbolt_container_labels_traefik_path_prefix[-1] == '/'"
