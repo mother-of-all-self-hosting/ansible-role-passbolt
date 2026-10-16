@@ -29,6 +29,9 @@ passbolt_gid: ""
 # The container runs as `passbolt_uid`:`passbolt_gid`, but the image only grants its own `www-data`
 # group access to `/etc/passbolt` (`rwxrwx---`). Adding this group as a supplementary group is what
 # lets Passbolt read its configuration when `passbolt_uid` is anything other than 33.
+#
+# The JWT key pair, which the role generates, is owned by `root` and this group too, so that Passbolt
+# can read the keys it signs its access tokens with, but not replace them.
 passbolt_container_image_gid: 33
 
 # The scheme used for serving Passbolt.
@@ -306,6 +309,11 @@ passbolt_environment_variables_app_full_base_url: "{{ passbolt_scheme }}://{{ pa
 # Controls the HTTPS environment variable, which tells PHP that the request reached the reverse proxy over HTTPS.
 # TLS ends before the container, so without it Passbolt would issue its session and CSRF cookies without the `Secure` flag.
 passbolt_environment_variables_https: "{{ 'on' if passbolt_scheme == 'https' else '' }}"
+
+# Controls whether Passbolt redirects plain HTTP requests to HTTPS and sends its own `Strict-Transport-Security` header.
+# Passbolt's healthcheck reports it as an error when it is off. It cannot cause a redirect loop behind the reverse proxy,
+# as the HTTPS environment variable already makes Passbolt treat every request as an HTTPS one.
+passbolt_environment_variables_passbolt_ssl_force: "{{ passbolt_scheme == 'https' }}"
 
 # Controls whether Passbolt takes the client's address from the `X-Forwarded-For` header set by the reverse proxy,
 # instead of recording the reverse proxy's own address in its logs and emails.
