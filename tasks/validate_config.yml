@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2024 Nikita Chernyi
-# SPDX-FileCopyrightText: 2026 spatterlight
 # SPDX-FileCopyrightText: 2026 Suguru Hirahara
+# SPDX-FileCopyrightText: 2026 spatterlight
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -101,6 +101,7 @@
       with_items:
         - { "name": "passbolt_container_labels_traefik_hostname", when: true }
         - { "name": "passbolt_container_labels_traefik_path_prefix", when: true }
+        - { "name": "passbolt_container_labels_traefik_middleware_basic_auth_users", when: "{{ passbolt_container_labels_traefik_middleware_basic_auth_enabled }}" }
 
     - name: Fail if passbolt_container_labels_traefik_path_prefix is different than /
       ansible.builtin.fail:
