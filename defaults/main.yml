@@ -18,7 +18,7 @@ passbolt_data_path: "{{ passbolt_base_path }}/data"
 
 # The version is Passbolt's own version, followed by the revision of the Docker image built for it (e.g. `5.16.0-1`).
 # renovate: datasource=docker depName=passbolt/passbolt versioning=semver
-passbolt_version: 5.16.0-1
+passbolt_version: 5.17.0-1
 
 passbolt_uid: ""
 passbolt_gid: ""
