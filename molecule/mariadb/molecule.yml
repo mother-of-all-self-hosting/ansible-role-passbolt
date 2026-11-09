@@ -65,8 +65,8 @@ provisioner:
 
         # Variables required for Passbolt to connect to the MariaDB database (via Unix socket)
         passbolt_database_type: mysql
-        passbolt_database_mysql_username: my_database_username
-        passbolt_database_mysql_password: my_database_password
+        passbolt_database_mysql_username: /#@my_database_username?%
+        passbolt_database_mysql_password: /#@my_database_password?%
         passbolt_database_name: passbolt
         passbolt_database_mysql_socket_enabled: true
         passbolt_database_mysql_socket_path_host: "{{ mariadb_run_path }}"

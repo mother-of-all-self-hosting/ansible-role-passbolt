@@ -64,8 +64,8 @@ provisioner:
 
         # Variables required for Passbolt to connect to the Postgres database (via Unix socket)
         passbolt_database_type: postgres
-        passbolt_database_postgres_username: my_database_username
-        passbolt_database_postgres_password: my_database_password
+        passbolt_database_postgres_username: /#@my_database_username?%
+        passbolt_database_postgres_password: /#@my_database_password?%
         passbolt_database_name: passbolt
         passbolt_database_postgres_socket_enabled: true
         passbolt_database_postgres_socket_path_host: "{{ postgres_run_path }}"
