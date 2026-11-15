@@ -328,7 +328,7 @@
 # `cake passbolt install` would refuse to run.
 - name: Run Passbolt's JWT healthcheck
   ansible.builtin.command:
-    cmd: docker exec passbolt bin/cake passbolt healthcheck --jwt
+    cmd: docker exec passbolt bin/cake passbolt healthcheck --filter jwt
   register: passbolt_jwt_healthcheck
   changed_when: false
 
