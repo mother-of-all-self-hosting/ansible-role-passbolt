@@ -13,9 +13,6 @@
   with_items:
     - passbolt_uid
     - passbolt_gid
-    - passbolt_hostname
-    - passbolt_path_prefix
-    - passbolt_container_network
 
 - name: Fail if Passbolt database type invalid
   ansible.builtin.fail:
